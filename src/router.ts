@@ -34,6 +34,8 @@ import { wakeContainer } from './container-runner.js';
 import { getSession } from './db/sessions.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
 import type { InboundEvent } from './channels/adapter.js';
+import { formatLocalTime } from './timezone.js';
+import { parseTextStyles, type ChannelType } from './text-styles.js';
 
 function generateId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -493,4 +495,35 @@ async function deliverToAgent(
 function messageIdForAgent(baseId: string | undefined, agentGroupId: string): string {
   const id = baseId && baseId.length > 0 ? baseId : generateId();
   return `${id}:${agentGroupId}`;
+}
+
+export function escapeXml(s: string): string {
+  if (!s) return '';
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function formatMessages(
+  messages: { sender_name: string; content: string; timestamp: string }[],
+  timezone: string,
+): string {
+  const lines = messages.map((m) => {
+    const displayTime = formatLocalTime(m.timestamp, timezone);
+    return `<message sender="${escapeXml(m.sender_name)}" time="${escapeXml(displayTime)}">${escapeXml(m.content)}</message>`;
+  });
+  const header = `<context timezone="${escapeXml(timezone)}" />\n`;
+  return `${header}<messages>\n${lines.join('\n')}\n</messages>`;
+}
+
+export function stripInternalTags(text: string): string {
+  return text.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+}
+
+export function formatOutbound(rawText: string, channel?: ChannelType): string {
+  const text = stripInternalTags(rawText);
+  if (!text) return '';
+  return channel ? parseTextStyles(text, channel) : text;
 }
