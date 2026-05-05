@@ -335,11 +335,7 @@ function resetStuckProcessingRows(
   }
 }
 
-function pruneAccumulatedMessages(
-  inboundDb: Database.Database,
-  agentGroupId: string,
-  attachmentsDir: string,
-): void {
+function pruneAccumulatedMessages(inboundDb: Database.Database, agentGroupId: string, attachmentsDir: string): void {
   // Collect attachment paths before deleting rows so we can clean up files.
   const old = inboundDb
     .prepare(
