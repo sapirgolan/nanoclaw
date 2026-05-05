@@ -28,6 +28,7 @@
  */
 import type Database from 'better-sqlite3';
 import fs from 'fs';
+import path from 'path';
 
 import { getActiveSessions } from './db/sessions.js';
 import { getAgentGroup } from './db/agent-groups.js';
@@ -42,6 +43,7 @@ import {
   syncProcessingAcks,
   type ContainerState,
 } from './db/session-db.js';
+import { DATA_DIR } from './config.js';
 import { log } from './log.js';
 import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
@@ -169,6 +171,12 @@ async function sweepSession(session: Session): Promise<void> {
     // 1. Sync processing_ack → messages_in status
     if (outDb) {
       syncProcessingAcks(inDb, outDb);
+    }
+
+    // Prune old accumulated (trigger=0) messages and their attachment files for
+    // silent-monitor groups. Host owns inbound.db — container must never write it.
+    if (agentGroup.folder === 'community-monitor') {
+      pruneAccumulatedMessages(inDb, agentGroup.id, path.join(DATA_DIR, 'attachments'));
     }
 
     // 2. Wake a container if work is due and nothing is running. Ordered
@@ -325,4 +333,52 @@ function resetStuckProcessingRows(
   } finally {
     if (ownsDb) useDb?.close();
   }
+}
+
+function pruneAccumulatedMessages(
+  inboundDb: Database.Database,
+  agentGroupId: string,
+  attachmentsDir: string,
+): void {
+  // Collect attachment paths before deleting rows so we can clean up files.
+  const old = inboundDb
+    .prepare(
+      `SELECT content FROM messages_in
+       WHERE trigger = 0
+         AND datetime(timestamp) < datetime('now', '-2 days')`,
+    )
+    .all() as Array<{ content: string }>;
+
+  const result = inboundDb
+    .prepare(
+      `DELETE FROM messages_in
+       WHERE trigger = 0
+         AND datetime(timestamp) < datetime('now', '-2 days')`,
+    )
+    .run();
+
+  for (const row of old) {
+    try {
+      const parsed = JSON.parse(row.content) as { attachments?: Array<{ localPath?: string }> };
+      for (const att of parsed.attachments ?? []) {
+        if (att.localPath) {
+          fs.rmSync(path.join(attachmentsDir, path.basename(att.localPath)), { force: true });
+        }
+      }
+    } catch {
+      // malformed content — skip
+    }
+  }
+
+  if (result.changes > 0) {
+    log.info('Pruned accumulated messages', { agentGroupId, deleted: result.changes });
+  }
+}
+
+export function _pruneAccumulatedMessagesForTesting(
+  inDb: Database.Database,
+  agentGroupId: string,
+  attachmentsDir = '/dev/null',
+): void {
+  pruneAccumulatedMessages(inDb, agentGroupId, attachmentsDir);
 }
