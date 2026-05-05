@@ -10,6 +10,7 @@ import { deleteOrphanProcessingClaims, getProcessingClaims } from './db/session-
 import {
   ABSOLUTE_CEILING_MS,
   CLAIM_STUCK_MS,
+  _pruneAccumulatedMessagesForTesting,
   _resetStuckProcessingRowsForTesting,
   decideStuckAction,
 } from './host-sweep.js';
@@ -210,6 +211,47 @@ function fakeSession(): Session {
     created_at: new Date().toISOString(),
   };
 }
+
+describe('pruneAccumulatedMessages', () => {
+  it('does not delete trigger=1 rows (schedule tasks must never be pruned)', () => {
+    const { inDb } = makeSessionDbs();
+    inDb
+      .prepare(
+        "INSERT INTO messages_in (id,seq,kind,timestamp,trigger,content) VALUES ('t1',1,'task','2020-01-01T00:00:00Z',1,'{}')",
+      )
+      .run();
+    _pruneAccumulatedMessagesForTesting(inDb, 'ag-test');
+    expect(inDb.prepare('SELECT count(*) as n FROM messages_in').get()).toMatchObject({ n: 1 });
+  });
+
+  it('deletes trigger=0 rows older than 2 days', () => {
+    const { inDb } = makeSessionDbs();
+    inDb
+      .prepare(
+        "INSERT INTO messages_in (id,seq,kind,timestamp,trigger,content) VALUES ('a1',1,'msg','2020-01-01T00:00:00Z',0,'{}')",
+      )
+      .run();
+    _pruneAccumulatedMessagesForTesting(inDb, 'ag-test');
+    expect(inDb.prepare('SELECT count(*) as n FROM messages_in').get()).toMatchObject({ n: 0 });
+  });
+
+  it('preserves trigger=0 rows newer than 2 days', () => {
+    const { inDb } = makeSessionDbs();
+    const recent = new Date(Date.now() - 60_000).toISOString();
+    inDb
+      .prepare(
+        `INSERT INTO messages_in (id,seq,kind,timestamp,trigger,content) VALUES ('a2',1,'msg','${recent}',0,'{}')`,
+      )
+      .run();
+    _pruneAccumulatedMessagesForTesting(inDb, 'ag-test');
+    expect(inDb.prepare('SELECT count(*) as n FROM messages_in').get()).toMatchObject({ n: 1 });
+  });
+
+  it('no-ops when nothing is old', () => {
+    const { inDb } = makeSessionDbs();
+    expect(() => _pruneAccumulatedMessagesForTesting(inDb, 'ag-test')).not.toThrow();
+  });
+});
 
 describe('deleteOrphanProcessingClaims', () => {
   it('removes only processing rows, leaves completed/failed alone', () => {

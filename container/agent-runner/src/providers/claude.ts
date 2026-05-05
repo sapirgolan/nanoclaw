@@ -34,7 +34,10 @@ const SDK_DISALLOWED_TOOLS = [
   'ExitWorktree',
 ];
 
-// Tool allowlist for NanoClaw agent containers
+// Tool allowlist for NanoClaw agent containers.
+// Only mcp__nanoclaw__* is listed here. If you add a custom MCP server via
+// add_mcp_server, its tools will be silently blocked until you add a
+// mcp__<server-name>__* entry below or restore the dynamic mcpAllowPattern.
 const TOOL_ALLOWLIST = [
   'Bash',
   'Read',

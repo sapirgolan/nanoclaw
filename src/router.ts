@@ -499,11 +499,7 @@ function messageIdForAgent(baseId: string | undefined, agentGroupId: string): st
 
 export function escapeXml(s: string): string {
   if (!s) return '';
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 export function formatMessages(
