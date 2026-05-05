@@ -45,7 +45,7 @@ import {
 } from './db/session-db.js';
 import { DATA_DIR } from './config.js';
 import { log } from './log.js';
-import { openInboundDb, openOutboundDb, inboundDbPath, heartbeatPath } from './session-manager.js';
+import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
 import type { Session } from './types.js';
 
@@ -309,18 +309,23 @@ function resetStuckProcessingRows(
   // freshly respawned container is stuck, and SIGKILL it before its
   // agent-runner has a chance to run clearStaleProcessingAcks() on startup.
   // We're safe to write outbound.db here because we just killed the container
-  // that owned it (or it crashed and left no writer behind).
-  const cleared = deleteOrphanProcessingClaims(outDb);
-  if (cleared > 0) {
-    log.info('Cleared orphan processing claims', { sessionId: session.id, cleared, reason });
+  // that owned it (or it crashed and left no writer behind). Open a fresh
+  // writable handle — the caller's outDb is readonly (host normally only reads it).
+  let writableOutDb: Database.Database | null = null;
+  try {
+    writableOutDb = openOutboundDbRw(session.agent_group_id, session.id);
+    const cleared = deleteOrphanProcessingClaims(writableOutDb);
+    if (cleared > 0) {
+      log.info('Cleared orphan processing claims', { sessionId: session.id, cleared, reason });
+    }
+  } catch (err) {
+    log.warn('Failed to clear orphan processing claims', { sessionId: session.id, err });
+  } finally {
+    writableOutDb?.close();
   }
 }
 
-function pruneAccumulatedMessages(
-  inboundDb: Database.Database,
-  agentGroupId: string,
-  attachmentsDir: string,
-): void {
+function pruneAccumulatedMessages(inboundDb: Database.Database, agentGroupId: string, attachmentsDir: string): void {
   // Collect attachment paths before deleting rows so we can clean up files.
   const old = inboundDb
     .prepare(
