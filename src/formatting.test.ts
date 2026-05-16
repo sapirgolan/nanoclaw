@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from './config.js';
-import {
-  escapeXml,
-  formatMessages,
-  formatOutbound,
-  stripInternalTags,
-} from './router.js';
+import { escapeXml, formatMessages, formatOutbound, stripInternalTags } from './router.js';
 import { parseTextStyles, parseSignalStyles } from './text-styles.js';
 
 interface NewMessage {
@@ -199,18 +194,11 @@ describe('formatOutbound', () => {
 describe('trigger gating (requiresTrigger interaction)', () => {
   // Replicates the exact logic from processGroupMessages and startMessageLoop:
   //   if (!isMainGroup && group.requiresTrigger !== false) { check trigger }
-  function shouldRequireTrigger(
-    isMainGroup: boolean,
-    requiresTrigger: boolean | undefined,
-  ): boolean {
+  function shouldRequireTrigger(isMainGroup: boolean, requiresTrigger: boolean | undefined): boolean {
     return !isMainGroup && requiresTrigger !== false;
   }
 
-  function shouldProcess(
-    isMainGroup: boolean,
-    requiresTrigger: boolean | undefined,
-    messages: NewMessage[],
-  ): boolean {
+  function shouldProcess(isMainGroup: boolean, requiresTrigger: boolean | undefined, messages: NewMessage[]): boolean {
     if (!shouldRequireTrigger(isMainGroup, requiresTrigger)) return true;
     return messages.some((m) => TRIGGER_PATTERN.test(m.content.trim()));
   }

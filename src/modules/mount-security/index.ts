@@ -29,7 +29,6 @@ export interface AllowedRoot {
   description?: string;
 }
 
-
 // Cache the allowlist in memory - only reloads on process restart
 let cachedAllowlist: MountAllowlist | null = null;
 let allowlistLoadError: string | null = null;
