@@ -1,5 +1,14 @@
-import type { NewMessage } from './types.js';
-import { logger } from './logger.js';
+import { log as logger } from './log.js';
+
+export interface NewMessage {
+  id?: string;
+  chat_jid?: string;
+  sender?: string;
+  sender_name?: string;
+  content: string;
+  timestamp: string;
+  is_from_me?: boolean;
+}
 
 /**
  * Extract a session slash command from a message, stripping the trigger prefix if present.
@@ -83,7 +92,7 @@ export async function handleSessionCommand(opts: {
   }
 
   // AUTHORIZED: process pre-compact messages first, then run the command
-  logger.info({ group: groupName, command }, 'Session command');
+  logger.info('Session command', { group: groupName, command });
 
   const cmdIndex = missedMessages.indexOf(cmdMsg);
   const preCompactMsgs = missedMessages.slice(0, cmdIndex);
@@ -109,7 +118,7 @@ export async function handleSessionCommand(opts: {
     });
 
     if (preResult === 'error' || hadPreError) {
-      logger.warn({ group: groupName }, 'Pre-compact processing failed, aborting session command');
+      logger.warn('Pre-compact processing failed, aborting session command', { group: groupName });
       await deps.sendMessage(`Failed to process messages before ${command}. Try again.`);
       if (preOutputSent) {
         // Output was already sent — don't retry or it will duplicate.

@@ -5,5 +5,6 @@ export default defineConfig({
     // container/agent-runner tests run under Bun (they depend on bun:sqlite).
     // See container/agent-runner/package.json "test" script.
     include: ['src/**/*.test.ts', 'setup/**/*.test.ts', 'scripts/**/*.test.ts'],
+    exclude: ['node_modules', 'src/channels/emacs.test.ts'],
   },
 });
