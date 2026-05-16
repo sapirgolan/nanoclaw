@@ -8,3 +8,6 @@
 
 import './cli.js';
 import './whatsapp.js';
+
+// emacs
+import './emacs.js';
