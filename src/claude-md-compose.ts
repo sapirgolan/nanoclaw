@@ -122,10 +122,16 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
   }
 
   // Composed entry — imports only.
+  // CLAUDE.local.md is included as the FINAL import so per-group spec
+  // (when the group puts its behavioral instructions there) lands in the
+  // agent's authoritative system context, not just as soft "memory."
+  // Claude Code's @-import syntax is honored by the Claude SDK and also
+  // inlined by the codex provider, so both backends see the same content.
   const imports = ['@./.claude-shared.md'];
   for (const name of [...desired.keys()].sort()) {
     imports.push(`@./.claude-fragments/${name}`);
   }
+  imports.push('@./CLAUDE.local.md');
   const body = [COMPOSED_HEADER, ...imports, ''].join('\n');
   writeAtomic(path.join(groupDir, 'CLAUDE.md'), body);
 

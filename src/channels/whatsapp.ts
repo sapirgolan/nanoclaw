@@ -40,6 +40,7 @@ import type { GroupMetadata, WAMessageKey, WAMessage, WASocket } from '@whiskeys
 
 import { isSafeAttachmentName } from '../attachment-safety.js';
 import { ASSISTANT_HAS_OWN_NUMBER, ASSISTANT_NAME, DATA_DIR } from '../config.js';
+import { getMessagingGroupByPlatform } from '../db/messaging-groups.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { registerChannelAdapter } from './channel-registry.js';
@@ -470,6 +471,7 @@ registerChannelAdapter('whatsapp', {
         printQRInTerminal: false,
         logger: baileysLogger,
         browser: Browsers.macOS('Chrome'),
+        markOnlineOnConnect: false,
         cachedGroupMetadata: async (jid: string) => getNormalizedGroupMetadata(jid),
         getMessage: async (key: WAMessageKey) => {
           // Check in-memory cache first (recently sent messages)
@@ -545,11 +547,6 @@ registerChannelAdapter('whatsapp', {
           } catch {
             /* ignore */
           }
-
-          // Announce availability for presence updates
-          sock.sendPresenceUpdate('available').catch((err) => {
-            log.warn('Failed to send presence update', { err });
-          });
 
           // Build LID → phone mapping from auth state
           if (sock.user) {
@@ -639,15 +636,25 @@ registerChannelAdapter('whatsapp', {
             const senderName = msg.pushName || sender.split('@')[0];
             const fromMe = msg.key.fromMe || false;
             // Filter bot's own messages to prevent echo loops.
-            // In self-chat (user messaging their own number), all messages have
-            // fromMe=true — use sentMessageCache to distinguish bot echoes from
-            // user-typed messages. For all other chats, the blanket fromMe
-            // filter is correct since the user's phone messages shouldn't wake
-            // the agent in third-party conversations.
+            //
+            // When the bot's WhatsApp account is the same as a user's phone
+            // (single-account NanoClaw installs), every message that user
+            // types from their phone in ANY chat arrives here with
+            // fromMe=true — indistinguishable at first glance from a bot
+            // echo. Two signals separate them:
+            //   1. sentMessageCache holds the id of every message the bot
+            //      sent via this socket. A cache hit means "bot echo, drop."
+            //   2. A registered messaging_groups row for the chatJid means
+            //      "this chat is wired to NanoClaw; the user typing here is
+            //      legitimate inbound traffic."
+            //
+            // If neither signal applies (no cache hit, no messaging_group
+            // row) the message is the user's chatter in an unwired chat,
+            // which should not wake any agent — drop.
             if (fromMe) {
-              const isSelfChat = botPhoneJid && chatJid === botPhoneJid;
-              if (!isSelfChat) continue;
               if (sentMessageCache.has(msg.key.id || '')) continue;
+              const knownChat = getMessagingGroupByPlatform('whatsapp', chatJid);
+              if (!knownChat) continue;
             }
 
             const isBotMessage = ASSISTANT_HAS_OWN_NUMBER ? false : content.startsWith(`${ASSISTANT_NAME}:`);
