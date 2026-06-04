@@ -120,6 +120,9 @@ export function decideStuckAction(args: {
 }
 
 let running = false;
+let lastAttachmentPruneMs = 0;
+const ATTACHMENT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
+export const ATTACHMENT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export function startHostSweep(): void {
   if (running) return;
@@ -141,6 +144,12 @@ async function sweep(): Promise<void> {
     }
   } catch (err) {
     log.error('Host sweep error', { err });
+  }
+
+  const now = Date.now();
+  if (now - lastAttachmentPruneMs > ATTACHMENT_PRUNE_INTERVAL_MS) {
+    lastAttachmentPruneMs = now;
+    pruneOldAttachments(path.join(DATA_DIR, 'attachments'), ATTACHMENT_MAX_AGE_MS);
   }
 
   setTimeout(sweep, SWEEP_INTERVAL_MS);
@@ -377,4 +386,36 @@ export function _pruneAccumulatedMessagesForTesting(
   attachmentsDir = '/dev/null',
 ): void {
   pruneAccumulatedMessages(inDb, agentGroupId, attachmentsDir);
+}
+
+function pruneOldAttachments(attachmentsDir: string, maxAgeMs: number): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(attachmentsDir);
+  } catch {
+    return;
+  }
+
+  const cutoff = Date.now() - maxAgeMs;
+  let deleted = 0;
+  for (const name of entries) {
+    const filePath = path.join(attachmentsDir, name);
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.isFile() && stat.mtimeMs < cutoff) {
+        fs.rmSync(filePath, { force: true });
+        deleted++;
+      }
+    } catch {
+      // skip files we can't stat or delete
+    }
+  }
+
+  if (deleted > 0) {
+    log.info('Pruned old attachment files', { deleted, maxAgeDays: Math.round(maxAgeMs / 86_400_000) });
+  }
+}
+
+export function _pruneOldAttachmentsForTesting(attachmentsDir: string, maxAgeMs: number): void {
+  pruneOldAttachments(attachmentsDir, maxAgeMs);
 }
