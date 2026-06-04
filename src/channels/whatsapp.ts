@@ -232,8 +232,20 @@ function buildMediaMessage(data: Buffer, filename: string, ext: string, caption?
   if (audioExts.includes(ext)) {
     return { audio: data, mimetype: `audio/${ext.slice(1) === 'mp3' ? 'mpeg' : ext.slice(1)}` };
   }
-  // Default: send as document
-  return { document: data, fileName: filename, caption, mimetype: 'application/octet-stream' };
+  const docMimeTypes: Record<string, string> = {
+    '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.doc': 'application/msword',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.xls': 'application/vnd.ms-excel',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv',
+    '.zip': 'application/zip',
+  };
+  const mimetype = docMimeTypes[ext] ?? 'application/octet-stream';
+  return { document: data, fileName: filename, caption, mimetype };
 }
 
 registerChannelAdapter('whatsapp', {

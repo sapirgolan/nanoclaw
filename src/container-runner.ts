@@ -302,6 +302,13 @@ function buildMounts(
     mounts.push({ hostPath: globalDir, containerPath: '/workspace/global', readonly: true });
   }
 
+  // Inbound media attachments — read-only so the agent can read images/files
+  // referenced by localPath in messages_in, but cannot modify or delete them.
+  const attachmentsDir = path.join(DATA_DIR, 'attachments');
+  if (fs.existsSync(attachmentsDir)) {
+    mounts.push({ hostPath: attachmentsDir, containerPath: '/workspace/attachments', readonly: true });
+  }
+
   // Shared CLAUDE.md — read-only, imported by the composed entry point via
   // the `.claude-shared.md` symlink inside the group dir.
   const sharedClaudeMd = path.join(process.cwd(), 'container', 'CLAUDE.md');
