@@ -31,12 +31,17 @@ manually. Aim for a realistic mix: different angles, lighting, group shots,
 and — if you have more than one kid — some photos where only one kid is
 present, to test cross-kid misattribution.
 
+Both scripts run via [uv](https://docs.astral.sh/uv/) — each has its
+dependencies declared inline (PEP 723), so `uv run` builds an ephemeral venv
+and installs them automatically on first run. No manual `pip install` step,
+no shared `requirements.txt` to keep in sync. Install uv once if you don't
+have it: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+
 ## 2. Run the Claude vision eval
 
 ```bash
-pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...
-python claude_vision_eval.py --eval-dir ./eval
+uv run claude_vision_eval.py --eval-dir ./eval
 ```
 
 Calls the Claude API once per (candidate photo × kid), asking "does this kid
@@ -46,11 +51,10 @@ photos × 2 kids that's ~200 calls — a few minutes, small API cost.
 ## 3. Run the local face-recognition eval
 
 ```bash
-# Linux: dlib is a native build
+# Linux: dlib is a native build, uv can't install the system compiler toolchain
 sudo apt-get install -y cmake build-essential
-pip install -r requirements.txt
 
-python local_face_recognition_eval.py --eval-dir ./eval
+uv run local_face_recognition_eval.py --eval-dir ./eval
 ```
 
 Computes face embeddings locally (no API calls) and compares distances. Also

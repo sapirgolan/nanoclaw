@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "face_recognition>=1.3",
+#     "numpy>=1.24",
+# ]
+# ///
 """
 Local face_recognition (dlib) zero-shot kid-photo matcher eval (Assignment step 2c).
 
@@ -14,10 +21,12 @@ docstring or README.md in this directory.
 
 Setup (Linux):
   sudo apt-get install -y cmake build-essential
-  pip install -r requirements.txt
+  (uv reads the inline dependency block above and creates an ephemeral venv
+  automatically — dlib's native build still needs cmake/a C compiler on the
+  system, uv can't install those)
 
 Run:
-  python local_face_recognition_eval.py --eval-dir ./eval
+  uv run local_face_recognition_eval.py --eval-dir ./eval
 
 Output (written into --eval-dir):
   face_recognition_results.jsonl   one row per candidate photo
@@ -47,7 +56,11 @@ try:
     import face_recognition
     import numpy as np
 except ImportError:
-    print("Missing dependency: pip install -r requirements.txt (needs cmake + a C compiler for dlib)", file=sys.stderr)
+    print(
+        "Missing dependency: run this script with 'uv run local_face_recognition_eval.py ...' "
+        "(dlib also needs cmake + a C compiler installed on the system)",
+        file=sys.stderr,
+    )
     raise
 
 # Same schema as claude_vision_eval.py: match / uncertain / no-match

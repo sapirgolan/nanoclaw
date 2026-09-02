@@ -1,9 +1,0 @@
-# For claude_vision_eval.py
-anthropic>=0.40
-pillow>=10.0
-
-# For local_face_recognition_eval.py
-# NOTE: face_recognition depends on dlib, which is a native build.
-# On Linux (Ubuntu), first run: sudo apt-get install -y cmake build-essential
-face_recognition>=1.3
-numpy>=1.24

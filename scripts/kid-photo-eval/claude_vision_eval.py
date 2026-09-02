@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "anthropic>=0.40",
+#     "pillow>=10.0",
+# ]
+# ///
 """
 Claude vision zero-shot kid-photo matcher eval (Assignment step 2b).
 
@@ -20,11 +27,11 @@ Folder layout expected (see README.md in this directory for how to build it):
       none/              real WhatsApp photos confirmed to contain NO target kid
 
 Setup:
-  pip install -r requirements.txt
   export ANTHROPIC_API_KEY=sk-ant-...
+  (uv reads the inline dependency block above and creates an ephemeral venv automatically)
 
 Run:
-  python claude_vision_eval.py --eval-dir ./eval
+  uv run claude_vision_eval.py --eval-dir ./eval
 
 Output (written into --eval-dir):
   claude_vision_results.jsonl   one row per candidate photo
@@ -46,13 +53,13 @@ from pathlib import Path
 try:
     from PIL import Image
 except ImportError:
-    print("Missing dependency: pip install -r requirements.txt", file=sys.stderr)
+    print("Missing dependency: run this script with 'uv run claude_vision_eval.py ...'", file=sys.stderr)
     raise
 
 try:
     import anthropic
 except ImportError:
-    print("Missing dependency: pip install -r requirements.txt", file=sys.stderr)
+    print("Missing dependency: run this script with 'uv run claude_vision_eval.py ...'", file=sys.stderr)
     raise
 
 # Matches the schema agreed in the design doc:
