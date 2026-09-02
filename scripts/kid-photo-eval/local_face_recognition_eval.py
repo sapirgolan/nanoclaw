@@ -1,47 +1,53 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.11,<3.14"
 # dependencies = [
-#     "face_recognition>=1.3",
+#     "deepface>=0.0.100",
+#     "retina-face>=0.0.17",
 #     "numpy>=1.24",
+#     "tf-keras",
 # ]
 # ///
 """
-Local face_recognition (dlib) zero-shot kid-photo matcher eval (Assignment step 2c).
+Local DeepFace zero-shot kid-photo matcher eval (Assignment step 2c).
 
-For each candidate photo, this computes a face embedding and compares it
-against your reference photos' embeddings via face_recognition's distance
-metric — no API calls, runs fully locally. Results are scored against the
-folder you sorted the candidates into, and written out in the same schema
-and format as claude_vision_eval.py so the two reports are directly
-comparable.
+For each candidate photo, this detects faces (RetinaFace) and computes a
+face embedding per face (ArcFace) and compares it against your reference
+photos' embeddings via cosine distance — no API calls, runs fully locally.
+Results are scored against the folder you sorted the candidates into, and
+written out in the same schema and format as claude_vision_eval.py so the
+two reports are directly comparable.
+
+Why DeepFace over dlib/face_recognition: DeepFace is actively maintained,
+offers several detector backends, and RetinaFace in particular handles the
+off-angle/low-light/group-shot conditions typical of real WhatsApp photos
+much better than dlib's plain HOG detector — which matters more here than
+the recognition model itself. Installs with plain pip/uv, no cmake/native
+build required (dlib does).
 
 Folder layout: identical to claude_vision_eval.py — see that script's
 docstring or README.md in this directory.
 
-Setup (Linux):
-  sudo apt-get install -y cmake build-essential
-  (uv reads the inline dependency block above and creates an ephemeral venv
-  automatically — dlib's native build still needs cmake/a C compiler on the
-  system, uv can't install those)
-
 Run:
   uv run local_face_recognition_eval.py --eval-dir ./eval
 
-Output (written into --eval-dir):
-  face_recognition_results.jsonl   one row per candidate photo
-  face_recognition_summary.txt     aggregate metrics
+First run downloads pretrained model weights (~a few hundred MB, cached
+under ~/.deepface/weights/ afterward) — needs network access once.
 
-Note on the confidence mapping: face_recognition reports a Euclidean
-*distance* between face embeddings (lower = more similar), not a 0-1
-confidence. This script maps confidence = max(0, 1 - distance) to reuse the
+Output (written into --eval-dir):
+  deepface_results.jsonl   one row per candidate photo
+  deepface_summary.txt     aggregate metrics
+
+Note on the confidence mapping: ArcFace + cosine distance ranges roughly
+0 (identical) to 2 (opposite), with DeepFace's own verified-match threshold
+at 0.68. This script maps confidence = max(0, 1 - distance) to reuse the
 same match/uncertain/no-match thresholds as claude_vision_eval.py for a
 direct side-by-side comparison, but that mapping is a rough heuristic — a
-"good" match is usually distance ~0.4-0.5, i.e. confidence ~0.5-0.6, which
-may not clear the 0.8 "match" threshold even when it's actually correct.
-Because of that, this script ALSO reports results using the library's own
-conventional default (distance <= 0.6 = same person) as a second, separate
-metric — read both, don't trust the mapped-confidence number alone.
+"good" match at distance ~0.68 gives confidence ~0.32, which may not clear
+the 0.8 "match" threshold even when it's actually correct. Because of that,
+this script ALSO reports results using DeepFace's own conventional default
+threshold as a second, separate metric — read both, don't trust the
+mapped-confidence number alone.
 """
 
 from __future__ import annotations
@@ -53,22 +59,32 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 try:
-    import face_recognition
+    from deepface import DeepFace
     import numpy as np
-except ImportError:
-    print(
-        "Missing dependency: run this script with 'uv run local_face_recognition_eval.py ...' "
-        "(dlib also needs cmake + a C compiler installed on the system)",
-        file=sys.stderr,
-    )
+except ImportError as e:
+    if "libxcb" in str(e) or "libGL" in str(e) or "libSM" in str(e):
+        print(
+            "Missing system library for opencv-python (a DeepFace dependency) on a "
+            "minimal Linux install. Fix with:\n"
+            "  sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "Missing dependency: run this script with 'uv run local_face_recognition_eval.py ...'",
+            file=sys.stderr,
+        )
     raise
 
 # Same schema as claude_vision_eval.py: match / uncertain / no-match
 MATCH_THRESHOLD = 0.8
 UNCERTAIN_THRESHOLD = 0.5
 
-# face_recognition's own conventional default tolerance (distance <= this = same person)
-LIB_DEFAULT_DISTANCE_TOLERANCE = 0.6
+MODEL_NAME = "ArcFace"
+DETECTOR_BACKEND = "retinaface"
+
+# DeepFace's own conventional verified-match threshold for ArcFace + cosine distance
+LIB_DEFAULT_DISTANCE_TOLERANCE = 0.68
 
 
 def status_for(confidence: float) -> str:
@@ -80,14 +96,30 @@ def status_for(confidence: float) -> str:
 
 
 def collect_images(dir_path: Path) -> list[Path]:
-    exts = {".jpg", ".jpeg", ".png"}  # face_recognition doesn't handle webp
+    exts = {".jpg", ".jpeg", ".png", ".webp"}
     return sorted(p for p in dir_path.iterdir() if p.suffix.lower() in exts)
 
 
-def encode_faces(path: Path) -> list[np.ndarray]:
-    """All face encodings found in the image (usually 0 or 1 for a reference photo)."""
-    img = face_recognition.load_image_file(str(path))
-    return face_recognition.face_encodings(img)
+def cosine_distance(a: list[float], b: list[float]) -> float:
+    a_arr, b_arr = np.array(a), np.array(b)
+    return float(1 - np.dot(a_arr, b_arr) / (np.linalg.norm(a_arr) * np.linalg.norm(b_arr)))
+
+
+def represent_faces(path: Path) -> list[list[float]]:
+    """Embeddings for every face DeepFace detects in the image (0+)."""
+    try:
+        reps = DeepFace.represent(
+            img_path=str(path),
+            model_name=MODEL_NAME,
+            detector_backend=DETECTOR_BACKEND,
+            enforce_detection=True,
+        )
+    except ValueError:
+        return []  # DeepFace's documented "no face detected" signal
+    except Exception as e:  # noqa: BLE001 - eval script, log and skip a bad image
+        print(f"  WARNING: DeepFace failed on {path}: {e}", file=sys.stderr)
+        return []
+    return [r["embedding"] for r in reps]
 
 
 @dataclass
@@ -121,22 +153,22 @@ def main() -> None:
         print(f"No kid subfolders found under {ref_dir}", file=sys.stderr)
         sys.exit(1)
 
-    references: dict[str, list[np.ndarray]] = {}
+    references: dict[str, list[list[float]]] = {}
     for kid in kid_names:
-        encodings: list[np.ndarray] = []
+        embeddings: list[list[float]] = []
         for img_path in collect_images(ref_dir / kid):
-            found = encode_faces(img_path)
+            found = represent_faces(img_path)
             if not found:
                 print(f"  WARNING: no face detected in reference photo {img_path}", file=sys.stderr)
                 continue
             if len(found) > 1:
                 print(f"  WARNING: multiple faces in reference photo {img_path}, using the first", file=sys.stderr)
-            encodings.append(found[0])
-        if not encodings:
-            print(f"WARNING: no usable reference encodings for '{kid}', skipping", file=sys.stderr)
+            embeddings.append(found[0])
+        if not embeddings:
+            print(f"WARNING: no usable reference embeddings for '{kid}', skipping", file=sys.stderr)
             continue
-        references[kid] = encodings
-        print(f"Encoded {len(encodings)} reference photos for '{kid}'")
+        references[kid] = embeddings
+        print(f"Encoded {len(embeddings)} reference photos for '{kid}'")
 
     candidate_groups = sorted(p.name for p in cand_dir.iterdir() if p.is_dir())
     if not candidate_groups:
@@ -152,7 +184,7 @@ def main() -> None:
             done += 1
             print(f"[{done}/{total}] {true_label}/{photo_path.name}")
 
-            candidate_faces = encode_faces(photo_path)
+            candidate_faces = represent_faces(photo_path)
             per_kid_min_dist: dict[str, float] = {}
 
             if not candidate_faces:
@@ -165,7 +197,7 @@ def main() -> None:
                         predicted_kid=None,
                         confidence=0.0,
                         status="no-match",
-                        min_distance=1.0,
+                        min_distance=2.0,
                         lib_default_match=False,
                         per_kid_min_distance={},
                         faces_detected=0,
@@ -173,11 +205,11 @@ def main() -> None:
                 )
                 continue
 
-            for kid, ref_encodings in references.items():
+            for kid, ref_embeddings in references.items():
                 # best-case: closest reference photo to the closest detected face
                 distances = [
-                    min(face_recognition.face_distance(ref_encodings, face_enc))
-                    for face_enc in candidate_faces
+                    min(cosine_distance(face_emb, ref_emb) for ref_emb in ref_embeddings)
+                    for face_emb in candidate_faces
                 ]
                 per_kid_min_dist[kid] = float(min(distances))
 
@@ -202,7 +234,7 @@ def main() -> None:
                 )
             )
 
-    write_outputs(eval_dir, "face_recognition", results)
+    write_outputs(eval_dir, "deepface", results)
 
 
 def write_outputs(eval_dir: Path, prefix: str, results: list[Result]) -> None:
@@ -218,7 +250,7 @@ def write_outputs(eval_dir: Path, prefix: str, results: list[Result]) -> None:
     uncertain_on_real_kid = 0
     no_face_detected_on_real_kid = 0
 
-    # Secondary metric using the library's own conventional distance threshold
+    # Secondary metric using DeepFace's own conventional distance threshold
     lib_correct = lib_false_negatives = lib_misattributions = lib_false_positives = 0
 
     for r in results:
@@ -254,12 +286,12 @@ def write_outputs(eval_dir: Path, prefix: str, results: list[Result]) -> None:
     total_none_photos = sum(1 for r in results if r.true_label == "none")
 
     lines = [
-        f"Method: {prefix}",
+        f"Method: {prefix} ({MODEL_NAME} + {DETECTOR_BACKEND})",
         f"Total candidate photos: {len(results)}",
         f"  containing a target kid: {total_real_kid_photos}",
         f"  containing none of them: {total_none_photos}",
         "",
-        "--- Using the shared match/uncertain/no-match schema (confidence = 1 - distance) ---",
+        "--- Using the shared match/uncertain/no-match schema (confidence = 1 - cosine distance) ---",
         f"Correct matches:         {correct_matches} / {total_real_kid_photos}",
         f"False negatives (CRITICAL — kid present, not matched or only 'uncertain'): "
         f"{len(false_negatives)} / {total_real_kid_photos}",
@@ -268,7 +300,7 @@ def write_outputs(eval_dir: Path, prefix: str, results: list[Result]) -> None:
         f"Cross-kid misattribution (wrong kid matched): {len(misattributions)} / {total_real_kid_photos}",
         f"False positives ('none' photo matched to a kid): {len(false_positives)} / {total_none_photos}",
         "",
-        f"--- Using face_recognition's own default distance tolerance (<= {LIB_DEFAULT_DISTANCE_TOLERANCE}) ---",
+        f"--- Using DeepFace's own default distance threshold (<= {LIB_DEFAULT_DISTANCE_TOLERANCE}) ---",
         f"Correct matches:         {lib_correct} / {total_real_kid_photos}",
         f"False negatives:         {lib_false_negatives} / {total_real_kid_photos}",
         f"Misattributions:         {lib_misattributions} / {total_real_kid_photos}",

@@ -51,14 +51,18 @@ photos × 2 kids that's ~200 calls — a few minutes, small API cost.
 ## 3. Run the local face-recognition eval
 
 ```bash
-# Linux: dlib is a native build, uv can't install the system compiler toolchain
-sudo apt-get install -y cmake build-essential
-
 uv run local_face_recognition_eval.py --eval-dir ./eval
 ```
 
-Computes face embeddings locally (no API calls) and compares distances. Also
-reports a second metric using the library's own default distance tolerance,
+Uses [DeepFace](https://github.com/serengil/deepface) (ArcFace model +
+RetinaFace detector) to compute face embeddings locally and compare
+distances — no API calls. Chosen over dlib/`face_recognition` because it's
+actively maintained, installs with plain pip/uv (no cmake/native build), and
+RetinaFace handles off-angle/low-light/group-shot photos — the exact
+conditions in real WhatsApp photos — noticeably better than dlib's detector.
+First run downloads pretrained model weights (a few hundred MB, cached
+under `~/.deepface/weights/` afterward) — needs network access once. Also
+reports a second metric using DeepFace's own default distance threshold,
 since the confidence-mapping used for the shared schema is a rough heuristic
 — read the note at the top of that script.
 
