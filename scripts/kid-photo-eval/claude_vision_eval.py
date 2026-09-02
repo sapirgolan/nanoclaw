@@ -30,6 +30,16 @@ Setup:
   export ANTHROPIC_API_KEY=sk-ant-...
   (uv reads the inline dependency block above and creates an ephemeral venv automatically)
 
+  If you get a 400 error mentioning "anthropic-workspace-id is required" —
+  your key is an identity-linked / multi-workspace key (Console > Settings >
+  API Keys shows this), which must be told which workspace to act in on
+  every request. Either:
+    - set ANTHROPIC_WORKSPACE_ID=wrkspc_... (find it under Console >
+      Settings > Workspaces, in the workspace's URL/details), or
+    - create a new API key scoped to a single workspace instead (Console >
+      Settings > API Keys > Create Key > pick a workspace) — no header
+      needed with that kind of key.
+
 Run:
   uv run claude_vision_eval.py --eval-dir ./eval
 
@@ -154,6 +164,14 @@ def ask_claude_is_kid_present(
             confidence = max(0.0, min(1.0, confidence))
             return present, confidence
         except Exception as e:  # noqa: BLE001 - eval script, log and retry
+            if "anthropic-workspace-id" in str(e):
+                print(
+                    "\nFATAL: your API key requires ANTHROPIC_WORKSPACE_ID to be set. "
+                    "See the setup notes at the top of this script for how to find it, "
+                    "or use a single-workspace-scoped key instead.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             last_err = e
             time.sleep(1.0 * (attempt + 1))
     print(f"  WARNING: giving up on {candidate_path.name} / {kid_name}: {last_err}", file=sys.stderr)
@@ -202,7 +220,14 @@ def main() -> None:
         print(f"No label subfolders found under {cand_dir} (expected kid names + 'none')", file=sys.stderr)
         sys.exit(1)
 
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+    import os
+
+    workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID")
+    client = anthropic.Anthropic(
+        # reads ANTHROPIC_API_KEY from env; identity-linked/multi-workspace keys
+        # additionally need anthropic-workspace-id on every request (see docstring)
+        default_headers={"anthropic-workspace-id": workspace_id} if workspace_id else None,
+    )
 
     results: list[Result] = []
     total = sum(len(collect_images(cand_dir / g)) for g in candidate_groups)
