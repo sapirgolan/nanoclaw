@@ -2,9 +2,19 @@
 
 Throwaway scripts for The Assignment in the design doc
 (`~/.gstack/projects/sapirgolan-nanoclaw/nanoclaw-main-design-20260901-135534.md`,
-step 2b/2c): hand-score Claude vision zero-shot vs. a local face-recognition
-library on real photos, before wiring anything into a live NanoClaw agent.
-These run standalone on your machine — no NanoClaw infra involved.
+step 2): hand-score a local face-recognition library (DeepFace) on real
+photos, before wiring anything into a live NanoClaw agent. Runs standalone
+on your machine — no NanoClaw infra involved.
+
+**Claude vision is no longer part of this plan.** It was originally scored
+head-to-head against the local library to pick a winner on accuracy. That's
+moot now — the live filter will run continuously against every incoming
+image across 4+ WhatsApp groups, and you've decided you don't want the
+ongoing Claude API cost that implies, regardless of how it would have
+scored. So `claude_vision_eval.py` (step "2b" in the older plan) is optional
+— run it only if you're curious for a reference number and don't mind the
+small API cost; it is not required. The steps below only need
+`local_face_recognition_eval.py` (DeepFace).
 
 ## 1. Build the eval folder
 
@@ -37,7 +47,10 @@ and installs them automatically on first run. No manual `pip install` step,
 no shared `requirements.txt` to keep in sync. Install uv once if you don't
 have it: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
 
-## 2. Run the Claude vision eval
+## 2. (Optional, costs API credits) Run the Claude vision eval
+
+Skip this step entirely unless you want a reference number — it's no
+longer part of the plan (see note above).
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -48,7 +61,7 @@ Calls the Claude API once per (candidate photo × kid), asking "does this kid
 appear in this photo?" against your reference photos, zero-shot. For ~100
 photos × 2 kids that's ~200 calls — a few minutes, small API cost.
 
-## 3. Run the local face-recognition eval
+## 3. Run the local face-recognition eval (the step that matters now)
 
 ```bash
 uv run local_face_recognition_eval.py --eval-dir ./eval
@@ -66,17 +79,17 @@ reports a second metric using DeepFace's own default distance threshold,
 since the confidence-mapping used for the shared schema is a rough heuristic
 — read the note at the top of that script.
 
-## 4. Compare the two summaries
+## 4. Read the summary
 
-Both scripts write `<method>_summary.txt` and `<method>_results.jsonl` into
-`eval/`. Read the two `_summary.txt` files side by side. The number that
-matters most: **false negatives** (kid present, method missed it) — that's
-the failure mode the whole design exists to prevent, since a missed match
-here is permanent once the 30-day prune runs. Cross-kid misattribution
-matters next if you have more than one kid. Whichever method has the lower
-false-negative count wins and becomes the live identity-matcher (see
-Premise 2 and Dependencies in the design doc) — API cost/latency vs. local
-compute is a secondary tiebreaker only if both come out close.
+`local_face_recognition_eval.py` writes `deepface_summary.txt` and
+`deepface_results.jsonl` into `eval/`. The number that matters most:
+**false negatives** (kid present, DeepFace missed it) — that's the failure
+mode the whole design exists to prevent, since a missed match here is
+permanent once the 30-day prune runs. Cross-kid misattribution matters next
+if you have more than one kid. Per Success Criteria in the design doc, you
+want a near-zero false-negative rate before wiring the live filter to any
+group — if it's not there yet, iterate on the reference photo set or
+thresholds and re-run.
 
 If you have concrete numbers and want to fold them back into the design
 doc, or want to move on to actually wiring the agent, come back to this
